@@ -8,12 +8,12 @@ services:
 # All in the services subdirectory but in the future 
 # fetch from image repository with version number
 
-  check_db_node:
+  test_db_connection:
    #image: TODO 
     build: 
-      context: ../services/check-db/ 
+      context: ../services/test-db-connection/ 
       dockerfile: Dockerfile
-    container_name: check_db_node
+    container_name: test_db_connection_node
     environment:
       - REDIS_URL=redis://default:${REDIS_PASS}@redis:6379
       - DB_NAME=${DB_NAME}
