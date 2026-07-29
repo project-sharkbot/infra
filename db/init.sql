@@ -295,9 +295,7 @@ CREATE TABLE moderator_user (
     platform_guild_id VARCHAR(255) NOT NULL,    -- twitch channel name or discord server ID 
     platform_user_id VARCHAR(255) NOT NULL,     -- how the user is referenced by the platform
 
-    mod_rules_id UUID NOT NULL,
-
-    FOREIGN KEY (mod_rules_id) REFERENCES mod_rules(id)
+    mod_rules_id UUID NOT NULL REFERENCES mod_rules (id)
 );
 
 CREATE INDEX idx_moderator_user_platform_user_id ON moderator_user(platform_user_id);
