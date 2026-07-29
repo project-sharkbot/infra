@@ -40,10 +40,19 @@ CREATE TYPE message_reaction AS ENUM (
 -- Defines a collection of rules (e.g., "Strict Gaming", "Casual Chat")
 CREATE TABLE rulesets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL,
+    ruleset_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    belongs_to UUID REFERENCES comunity (id) NOT NULL ON DELETE CASCADE,
+
+    UNIQUE belongs_to, ruleset_name
+);
+
+CREATE TABLE guild_active_ruleset ( 
+    ruleset_id UUID NOT NULL REFERENCES rulesets (id),
     platform platform_type NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    platform_guild_id VARCHAR(255) NOT NULL,
+    
+    PRIMARY KEY (platform, platform_guild_id)
 );
 
 -- Individual rules belonging to a ruleset
