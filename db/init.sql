@@ -22,6 +22,16 @@ CREATE TYPE rule_types AS ENUM (
         'caps', 'spoilers', 'emojis', 'spam_messages', 'repeated_text'
 );
 
+-- What the reaction of the offender should be
+CREATE TYPE punishment_type AS ENUM (
+    'timed_ban', 'perma_ban', 'kick', 'warn'
+);
+
+-- What to do with offending message
+CREATE TYPE message_reaction AS ENUM (
+    'warn', 'delete', 'warn+delete'
+);
+
 -- ============================================================================
 -- 1. CORE CONFIGURATION & RULESETS
 -- ============================================================================
