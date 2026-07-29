@@ -29,7 +29,8 @@ CREATE TYPE punishment_type AS ENUM (
 
 -- What to do with offending message
 CREATE TYPE message_reaction AS ENUM (
-    'warn', 'delete', 'warn+delete'
+    -- possibly adding 'censor' in the future
+    'delete', 'nothing'
 );
 
 -- ============================================================================
