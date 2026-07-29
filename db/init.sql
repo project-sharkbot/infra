@@ -58,6 +58,23 @@ CREATE TABLE rules (
     UNIQUE(ruleset_id, rule_type)
 );
 
+CREATE TABLE comunity ( 
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+);
+
+CREATE TABLE comunity_guilds ( 
+    comunity_id UUID REFERENCES comunity (id) NOT NULL, 
+    platform_guild_id VARCHAR(255) NOT NULL, 
+    platform platform_type NOT NULL,
+
+    PRIMARY KEY comunity_id, platform_guild_id, platform,
+    -- Specific guild (id + platform) should only belong in a single comunity
+    -- While a comunity can have multiple guilds even of the same platform
+    -- i. e. A person owns multiple discord servers 
+    UNIQUE (platform_guild_id, platform)
+);
+
 -- ============================================================================
 -- 2. HIERARCHICAL OVERRIDES (Server > Channel > Role/User)
 -- ============================================================================
