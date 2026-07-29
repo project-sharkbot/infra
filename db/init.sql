@@ -110,14 +110,25 @@ CREATE TABLE breaking_reactions (
     ruleset_id UUID NOT NULL REFERENCES rulesets(id) ON DELETE CASCADE,
     rule_type VARCHAR(50) NOT NULL, -- Links to rules.rule_type
     
-    --NOTE: possibly make it's own table
-    --NOTE: platform -> available actions 
-    action_type VARCHAR(20) NOT NULL CHECK (action_type IN (
-        'delete_message', 'warn_user', 'temp_ban', 'permaban'
-    )),
+    -- Actions depend on bot perms and platform abilities 
+    message_action message_reaction NOT NULL DEFAULT 'delete', 
+    offender_reaction punishment_type NOT NULL DEFAULT 'warn',
+
+    duration_sec INT CHECK (duration_sec is NULL OR duration_sec > 0),  -- punishment duraction in seconds 
+                                                                        -- not null only for timed bans
+                                                                        -- managed by constraint
+
+    strike_count INT DEFAULT 1 CHECK (strike_count > 0),                -- How many strikes this action adds
     
-    duration_sec INT, -- For temp_ban/warn expiry. NULL for permaban/delete
-    strike_count INT DEFAULT 1 -- How many strikes this action adds
+    CONSTRAINT punishment_match_duration CHECK (
+        (offender_reaction = 'timed_ban' AND duration_sec IS NOT NULL)
+        OR (offender_reaction IN ('perma_ban', 'kick', 'warn') AND duration_sec IS NULL)
+    ),
+
+    -- When to no longer count as a strike (forgive/forget timer)
+    -- value -> current_time + value = valid_until timestamp
+    -- NULL -> valid_until = NULL -> never forgive/always valid
+    expiry_duration INT DEFAULT NULL CHECK (expiry_duration > 0)
 );
 
 -- Audit log of all actions taken by the bot
