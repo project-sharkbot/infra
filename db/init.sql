@@ -147,7 +147,12 @@ CREATE TABLE moderation_logs (
     action_taken VARCHAR(50) NOT NULL,
 
     message_content_snapshot TEXT, -- Store snippet of offending message
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+
+    valid_until TIMESTAMPTZ, -- NULL == forever, otherwise expiry_duration + created_at
+
+    CONSTRAINT offence_validity CHECK (valid_until IS NULL OR valid_until > created_at)
+
 );
 
 -- Index for fast lookup of user history
