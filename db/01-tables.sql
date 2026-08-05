@@ -1,37 +1,11 @@
--- Enable UUID extension for robust primary keys
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- ============================================================================
--- 0. Custom types
--- ============================================================================
-
--- Enum type for the platforms that we support 
-CREATE TYPE IF NOT EXISTS platform_type AS ENUM (
-    'discord', 'twitch'
-);
-
-CREATE TYPE IF NOT EXISTS transaction_type AS ENUM (
-        'daily_reward', 'gamble_transaction',  
-        'user_transfer', 'game_transaction', 'admin_adjust'
-);
-
-CREATE TYPE IF NOT EXISTS rule_types AS ENUM (
-        'caps', 'spoilers', 'emojis', 'spam_messages', 'repeated_text'
-);
-
-CREATE TYPE IF NOT EXISTS punishment_type AS ENUM (
-    'timed_ban', 'perma_ban', 'kick', 'warn'
-);
-
-CREATE TYPE IF NOT EXISTS message_reaction AS ENUM (
-    'delete', 'nothing'
-);
+-- 01-tables.sql
+-- create in dependency order
 
 -- ============================================================================
 -- 1. CORE: Communities and Guilds
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS comunity (
+CREATE TABLE IF NOT EXISTS community (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     community_name VARCHAR(255),
     created_by_user_id VARCHAR(255),
@@ -39,12 +13,11 @@ CREATE TABLE IF NOT EXISTS comunity (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS comunity_guilds ( 
-    comunity_id UUID NOT NULL REFERENCES comunity (id) ON DELETE CASCADE, 
-    platform_guild_id VARCHAR(255) NOT NULL, 
+CREATE TABLE IF NOT EXISTS community_guilds (
+    community_id UUID NOT NULL REFERENCES community (id) ON DELETE CASCADE,
+    platform_guild_id VARCHAR(255) NOT NULL,
     platform platform_type NOT NULL,
-
-    PRIMARY KEY (comunity_id, platform_guild_id, platform),
+    PRIMARY KEY (community_id, platform_guild_id, platform),
     UNIQUE (platform_guild_id, platform)
 );
 
@@ -56,22 +29,18 @@ CREATE TABLE IF NOT EXISTS rulesets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ruleset_name VARCHAR(100) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    belongs_to UUID REFERENCES comunity (id) NOT NULL ON DELETE CASCADE,
+    belongs_to UUID NOT NULL REFERENCES community (id) ON DELETE CASCADE,
     UNIQUE (belongs_to, ruleset_name)
 );
 
-CREATE TABLE IF NOT EXISTS guild_active_ruleset ( 
-    comunity_id UUID NOT NULL REFERENCES comunity(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS guild_active_ruleset (
+    community_id UUID NOT NULL REFERENCES community(id) ON DELETE CASCADE,
     ruleset_id UUID NOT NULL REFERENCES rulesets (id) ON DELETE SET NULL,
     platform platform_type NOT NULL,
     platform_guild_id VARCHAR(255) NOT NULL,
-
     PRIMARY KEY (platform, platform_guild_id),
-    FOREIGN KEY (comunity_id, platform_guild_id, platform) REFERENCES comunity_guilds(comunity_id, platform_guild_id, platform) ON DELETE CASCADE
+    FOREIGN KEY (community_id, platform_guild_id, platform) REFERENCES community_guilds(community_id, platform_guild_id, platform) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_guild_active_ruleset_comunity ON guild_active_ruleset(comunity_id);
-CREATE INDEX IF NOT EXISTS idx_guild_active_ruleset_platform_guild ON guild_active_ruleset(platform_guild_id);
 
 -- ============================================================================
 -- 3. RULES and OVERRIDES
@@ -98,13 +67,9 @@ CREATE TABLE IF NOT EXISTS ruleset_overrides (
     override_threshold_value INT,
     override_window_sec INT,
     override_enabled BOOLEAN DEFAULT TRUE,
-    CONSTRAINT check_scope_validity CHECK (
-        channel_id IS NOT NULL OR role_id IS NOT NULL OR user_id IS NOT NULL
-    ),
+    CONSTRAINT check_scope_validity CHECK (channel_id IS NOT NULL OR role_id IS NOT NULL OR user_id IS NOT NULL),
     UNIQUE(server_fk, channel_id, role_id, user_id, ruleset_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_ruleset_overrides_server_priority ON ruleset_overrides(server_fk, priority);
 
 -- ============================================================================
 -- 4. MODERATION ACTIONS & LOGGING
@@ -114,20 +79,17 @@ CREATE TABLE IF NOT EXISTS breaking_reactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ruleset_id UUID NOT NULL REFERENCES rulesets(id) ON DELETE CASCADE,
     rule_type rule_types NOT NULL,
-
     message_action message_reaction NOT NULL DEFAULT 'delete',
     offender_reaction punishment_type NOT NULL DEFAULT 'warn',
     duration_sec INT CHECK (duration_sec IS NULL OR duration_sec > 0),
     strike_count INT DEFAULT 1 CHECK (strike_count > 0),
     expiry_duration INT DEFAULT NULL CHECK (expiry_duration > 0),
     CONSTRAINT punishment_match_duration CHECK (
-        (offender_reaction = 'timed_ban' AND duration_sec IS NOT NULL)
-        OR (offender_reaction IN ('perma_ban', 'kick', 'warn') AND duration_sec IS NULL)
+        (offender_reaction = 'timed_ban' AND duration_sec IS NOT NULL) OR
+        (offender_reaction IN ('perma_ban', 'kick', 'warn') AND duration_sec IS NULL)
     ),
     UNIQUE(ruleset_id, rule_type)
 );
-
-CREATE INDEX IF NOT EXISTS idx_breaking_reactions_ruleset ON breaking_reactions(ruleset_id);
 
 CREATE TABLE IF NOT EXISTS moderation_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -136,17 +98,12 @@ CREATE TABLE IF NOT EXISTS moderation_logs (
     channel_id VARCHAR(255),
     user_id VARCHAR(255) NOT NULL,
     moderator_id VARCHAR(255),
-
     breaking_reaction_id UUID REFERENCES breaking_reactions(id) ON DELETE SET NULL,
     message_content_snapshot TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     valid_until TIMESTAMPTZ,
     CONSTRAINT offence_validity CHECK (valid_until IS NULL OR valid_until > created_at)
 );
-
-CREATE INDEX IF NOT EXISTS idx_logs_user ON moderation_logs(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_logs_guild ON moderation_logs(server_fk, created_at);
-CREATE INDEX IF NOT EXISTS idx_logs_breaking_reaction ON moderation_logs(breaking_reaction_id);
 
 -- ============================================================================
 -- 5. ECONOMY SYSTEM (Unified Multiplatform)
@@ -180,9 +137,6 @@ CREATE TABLE IF NOT EXISTS economy_connection_codes (
     CHECK (target_platform IS DISTINCT FROM requesting_platform)
 );
 
-CREATE INDEX IF NOT EXISTS idx_connection_codes_player ON economy_connection_codes(requesting_player_id);
-CREATE INDEX IF NOT EXISTS idx_connections_platform ON economy_connections(platform, platform_user_id);
-
 CREATE TABLE IF NOT EXISTS economy_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     player_id UUID NOT NULL REFERENCES economy_players(id),
@@ -191,10 +145,6 @@ CREATE TABLE IF NOT EXISTS economy_transactions (
     metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- ============================================================================
--- 6. GAME STATE (kept in Redis; optional Postgres table commented)
--- ============================================================================
 
 -- ============================================================================
 -- 7. Moderation roles
@@ -229,8 +179,6 @@ CREATE TABLE IF NOT EXISTS moderator_platform_role (
     UNIQUE (platform, platform_role_id, platform_guild_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_moderator_platform_role_id ON moderator_platform_role(platform_role_id, platform_guild_id, platform);
-
 CREATE TABLE IF NOT EXISTS moderator_user (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     platform platform_type NOT NULL,
@@ -242,9 +190,3 @@ CREATE TABLE IF NOT EXISTS moderator_user (
     granted_by_user_id VARCHAR(255),
     UNIQUE(platform, platform_guild_id, platform_user_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_moderator_user_platform_user_id ON moderator_user(platform_user_id);
-
--- ============================================================================
--- Optional helper functions will be added in separate function scripts
--- ============================================================================
