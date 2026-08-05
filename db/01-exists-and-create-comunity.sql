@@ -1,4 +1,4 @@
-
+-- Bool function to check if a guild is in the database under a comunity
 CREATE OR REPLACE FUNCTION guild_exists (IN guild_id VARCHAR(255), IN platform platform_type) RETURNS BOOLEAN
 LANGUAGE SQL 
 AS $$
@@ -10,6 +10,9 @@ AS $$
     );
 $$;
 
+-- creates a new community for a given guild and platform
+-- also creates default admin/mod rules
+-- and assigns them to user platform id given in parameters
 CREATE OR REPLACE FUNCTION create_comunity (
     IN guild_id VARCHAR(255), 
     IN platform platform_type,
@@ -71,12 +74,14 @@ BEGIN
         platform,
         platform_guild_id,
         platform_user_id,
-        mod_rules_id
+        mod_rules_id,
+        granted_by_user_id
     ) VALUES (
         platform,
         guild_id,
         p_user_id,
-        new_mod_rules_id
+        new_mod_rules_id,
+        NULL -- Granted by system - no users
     );
 
     RETURN QUERY SELECT 0, 'ok', new_comunity_id;
