@@ -7,7 +7,20 @@ services:
 # - DiscordBot
 # All in the services subdirectory but in the future 
 # fetch from image repository with version number
-
+  api:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    container_name: sharkbot_api
+    environment:
+      - REDIS_URL=redis://default:${REDIS_PASS}@redis:6379
+      - REDIS_PASS=${REDIS_PASS}
+      - DB_NAME=${DB_NAME}
+      - DB_PASS=${DB_PASS}
+      - DB_USER=${DB_USER}
+    depends_on:
+      - postgres
+      - redis
   test_db_connection:
    #image: TODO 
     build: 
@@ -35,7 +48,7 @@ services:
       - "5432:5432"
     volumes:
       # Add initial schema and tables
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/:/docker-entrypoint-initdb.d/:ro
       - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
