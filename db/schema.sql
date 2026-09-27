@@ -993,7 +993,7 @@ ALTER TABLE ONLY public.guild_active_ruleset
 --
 
 ALTER TABLE ONLY public.guild_active_ruleset
-    ADD CONSTRAINT guild_active_ruleset_ruleset_id_fkey FOREIGN KEY (ruleset_id) REFERENCES public.rulesets(id) ON DELETE SET NULL;
+    ADD CONSTRAINT guild_active_ruleset_ruleset_id_fkey FOREIGN KEY (ruleset_id) REFERENCES public.rulesets(id) ON DELETE RESTRICT;
 
 
 --
@@ -1017,7 +1017,7 @@ ALTER TABLE ONLY public.moderator_platform_role
 --
 
 ALTER TABLE ONLY public.moderator_user
-    ADD CONSTRAINT moderator_user_mod_rules_id_fkey FOREIGN KEY (mod_rules_id) REFERENCES public.mod_rules(id);
+    ADD CONSTRAINT moderator_user_mod_rules_id_fkey FOREIGN KEY (mod_rules_id) REFERENCES public.mod_rules(id) ON DELETE CASCADE;
 
 
 --
@@ -1057,4 +1057,6 @@ ALTER TABLE ONLY public.rulesets
 
 INSERT INTO public.schema_migrations (version) VALUES
     ('20260927000001'),
-    ('20260927152814');
+    ('20260927152814'),
+    ('20260927175128'),
+    ('20260927175145');
