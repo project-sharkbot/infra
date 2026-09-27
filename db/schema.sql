@@ -93,10 +93,8 @@ CREATE TYPE public.transaction_type AS ENUM (
 
 CREATE FUNCTION public.add_guild_to_community(p_guild_id character varying, p_platform public.platform_type, p_target_community_id uuid, p_foreign_guild_id character varying, p_owner_user_id character varying) RETURNS TABLE(error_number integer, error_message text)
     LANGUAGE plpgsql
+    SET "sharkbot.owner_change" TO 'on'
     AS $$
-DECLARE
-    new_mod_rules_id UUID;
-    default_rules_name TEXT;
 BEGIN
     IF guild_exists(p_guild_id, p_platform) THEN
         RETURN QUERY SELECT 1, 'Guild already in a community';
@@ -106,35 +104,6 @@ BEGIN
     INSERT INTO community_guilds (community_id, platform_guild_id, platform)
     VALUES (p_target_community_id, p_guild_id, p_platform);
 
-    default_rules_name := format('default_mod_rules_%s_%s', p_platform, p_guild_id);
-
-    INSERT INTO mod_rules (
-        rules_name,
-        platform,
-        platform_guild_id,
-        delete_user_messages,
-        create_rulesets,
-        edit_rulesets,
-        delete_rulesets,
-        create_roles,
-        edit_roles,
-        delete_roles,
-        change_active_ruleset
-    ) VALUES (
-        default_rules_name,
-        p_platform,
-        p_guild_id,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true
-    )
-    RETURNING id INTO new_mod_rules_id;
-
     INSERT INTO moderator_user (
         platform,
         platform_guild_id,
@@ -142,12 +111,12 @@ BEGIN
         mod_rules_id,
         granted_by_user_id
     ) VALUES (
-        p_platform,
-        p_guild_id,
-        p_owner_user_id,
-        new_mod_rules_id,
-        NULL
-    );
+                 p_platform,
+                 p_guild_id,
+                 p_owner_user_id,
+                 owner_rules_id(),
+                 NULL
+             );
 
     IF p_foreign_guild_id IS NOT NULL AND p_foreign_guild_id <> '' AND p_foreign_guild_id <> p_guild_id THEN
         -- Add other mod rules with from guild suffix
@@ -163,33 +132,32 @@ BEGIN
 
         -- Add rules from other guild
         INSERT INTO mod_rules (
-        rules_name,
-        platform,
-        platform_guild_id,
-        delete_user_messages,
-        create_rulesets,
-        edit_rulesets,
-        delete_rulesets,
-        create_roles,
-        edit_roles,
-        delete_roles,
-        change_active_ruleset
+            rules_name,
+            platform,
+            platform_guild_id,
+            delete_user_messages,
+            create_rulesets,
+            edit_rulesets,
+            delete_rulesets,
+            create_roles,
+            edit_roles,
+            delete_roles,
+            change_active_ruleset
         ) SELECT
-            format('%s_from_%s', r.rules_name, p_foreign_guild_id),
-            p_platform,
-            p_guild_id,
-            r.delete_user_messages,
-            r.create_rulesets,
-            r.edit_rulesets,
-            r.delete_rulesets,
-            r.create_roles,
-            r.edit_roles,
-            r.delete_roles,
-            r.change_active_ruleset
+              format('%s_from_%s', r.rules_name, p_foreign_guild_id),
+              p_platform,
+              p_guild_id,
+              r.delete_user_messages,
+              r.create_rulesets,
+              r.edit_rulesets,
+              r.delete_rulesets,
+              r.create_roles,
+              r.edit_roles,
+              r.delete_roles,
+              r.change_active_ruleset
         FROM mod_rules r
         WHERE r.platform = p_platform AND
-            r.platform_guild_id = p_foreign_guild_id AND
-            r.rules_name <> format('default_mod_rules_%s_%s', p_platform, p_foreign_guild_id);
+            r.platform_guild_id = p_foreign_guild_id;
 
         -- Copy users - replace with new mod rules ids
         INSERT INTO moderator_user (
@@ -205,13 +173,13 @@ BEGIN
             r.id,
             m.granted_by_user_id
         FROM moderator_user m
-            JOIN mod_rules o ON o.id = m.mod_rules_id
-            JOIN mod_rules r ON r.platform = p_platform AND
-                r.platform_guild_id = p_guild_id AND
-                r.rules_name = format('%s_from_%s', o.rules_name, p_foreign_guild_id)
+                 JOIN mod_rules o ON o.id = m.mod_rules_id
+                 JOIN mod_rules r ON r.platform = p_platform AND
+                                     r.platform_guild_id = p_guild_id AND
+                                     r.rules_name = format('%s_from_%s', o.rules_name, p_foreign_guild_id)
         WHERE m.platform = p_platform AND
-        m.platform_guild_id = p_foreign_guild_id AND
-        m.platform_user_id <> p_owner_user_id
+            m.platform_guild_id = p_foreign_guild_id AND
+            m.platform_user_id <> p_owner_user_id
         ON CONFLICT (platform, platform_guild_id, platform_user_id) DO NOTHING;
     END IF;
 
@@ -230,11 +198,10 @@ $$;
 
 CREATE FUNCTION public.create_community(guild_id character varying, platform public.platform_type, p_user_id character varying, community_str_name text) RETURNS TABLE(error_number integer, error_message text, community_id uuid)
     LANGUAGE plpgsql
+    SET "sharkbot.owner_change" TO 'on'
     AS $$
 DECLARE
     new_community_id UUID;
-    new_mod_rules_id UUID;
-    default_rules_name TEXT;
 BEGIN
     IF guild_exists(guild_id, platform) THEN
         RETURN QUERY SELECT 1, 'Community with this platform already exists', NULL::UUID;
@@ -248,36 +215,6 @@ BEGIN
     INSERT INTO community_guilds (community_id, platform_guild_id, platform)
     VALUES (new_community_id, guild_id, platform);
 
-    default_rules_name := format('default_mod_rules_%s_%s', platform, guild_id);
-
-    -- god-tier permissions (everything)
-    INSERT INTO mod_rules (
-        rules_name,
-        platform,
-        platform_guild_id,
-        delete_user_messages,
-        create_rulesets,
-        edit_rulesets,
-        delete_rulesets,
-        create_roles,
-        edit_roles,
-        delete_roles,
-        change_active_ruleset
-    ) VALUES (
-        default_rules_name,
-        platform,
-        guild_id,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true
-    )
-    RETURNING id INTO new_mod_rules_id;
-
     -- Adds owner as god-tier mod
     INSERT INTO moderator_user (
         platform,
@@ -286,12 +223,12 @@ BEGIN
         mod_rules_id,
         granted_by_user_id
     ) VALUES (
-        platform,
-        guild_id,
-        p_user_id,
-        new_mod_rules_id,
-        NULL
-    );
+                 platform,
+                 guild_id,
+                 p_user_id,
+                 owner_rules_id(),
+                 NULL
+             );
 
     RETURN QUERY SELECT 0, 'ok', new_community_id;
     RETURN;
@@ -410,6 +347,44 @@ CREATE FUNCTION public.guild_exists(guild_id character varying, platform public.
             AND platform = $2
     );
 $_$;
+
+
+--
+-- Name: lock_owner_bundle(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_owner_bundle() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'The built-in owner bundle cannot be changed or deleted';
+END;
+$$;
+
+
+--
+-- Name: lock_owner_rows(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_owner_rows() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF current_setting('sharkbot.owner_change', true) IS DISTINCT FROM 'on' THEN
+        RAISE EXCEPTION 'Ownership cannot be changed outside of ownership functions';
+    end if;
+    RETURN COALESCE(NEW, OLD);
+end;
+$$;
+
+
+--
+-- Name: owner_rules_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.owner_rules_id() RETURNS uuid
+    LANGUAGE sql IMMUTABLE
+    AS $$ SELECT '00000000-0000-0000-0000-000000000001'::uuid $$;
 
 
 SET default_tablespace = '';
@@ -534,8 +509,8 @@ CREATE TABLE public.guild_active_ruleset (
 CREATE TABLE public.mod_rules (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
     rules_name character varying(255) NOT NULL,
-    platform public.platform_type NOT NULL,
-    platform_guild_id character varying(255) NOT NULL,
+    platform public.platform_type,
+    platform_guild_id character varying(255),
     delete_user_messages boolean DEFAULT false,
     create_rulesets boolean DEFAULT false,
     edit_rulesets boolean DEFAULT false,
@@ -545,7 +520,8 @@ CREATE TABLE public.mod_rules (
     delete_roles boolean DEFAULT false,
     change_active_ruleset boolean DEFAULT false,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT chk_builtin CHECK (((id = public.owner_rules_id()) OR ((platform IS NOT NULL) AND (platform_guild_id IS NOT NULL))))
 );
 
 
@@ -933,6 +909,34 @@ CREATE INDEX idx_ruleset_overrides_server_priority ON public.ruleset_overrides U
 
 
 --
+-- Name: moderator_user_one_owner_per_guild; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX moderator_user_one_owner_per_guild ON public.moderator_user USING btree (platform, platform_guild_id) WHERE (mod_rules_id = public.owner_rules_id());
+
+
+--
+-- Name: mod_rules lock_owner_bundle; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER lock_owner_bundle BEFORE DELETE OR UPDATE ON public.mod_rules FOR EACH ROW WHEN ((old.id = public.owner_rules_id())) EXECUTE FUNCTION public.lock_owner_bundle();
+
+
+--
+-- Name: moderator_user lock_owner_new; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER lock_owner_new BEFORE INSERT OR UPDATE ON public.moderator_user FOR EACH ROW WHEN ((new.mod_rules_id = public.owner_rules_id())) EXECUTE FUNCTION public.lock_owner_rows();
+
+
+--
+-- Name: moderator_user lock_owner_old; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER lock_owner_old BEFORE DELETE OR UPDATE ON public.moderator_user FOR EACH ROW WHEN ((old.mod_rules_id = public.owner_rules_id())) EXECUTE FUNCTION public.lock_owner_rows();
+
+
+--
 -- Name: breaking_reactions breaking_reactions_ruleset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1059,4 +1063,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260927000001'),
     ('20260927152814'),
     ('20260927175128'),
-    ('20260927175145');
+    ('20260927175145'),
+    ('20260927185611');
