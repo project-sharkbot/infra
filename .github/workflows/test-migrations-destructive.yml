@@ -1,0 +1,34 @@
+name: migrations-test
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - db/**
+      - docker-compose.yml
+      - .env.example
+      - .github/workflows/test-migrations-destructive.yml
+      - .github/scripts/test-migrations-destructive.sh
+  pull_request:
+    paths: *paths
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use dummy environment
+        run: cp .env.example .env
+
+      - name: Start postgres
+        run: docker compose up -d --wait postgres
+
+      - name: Check every migration is exactly reversible and schema.sql is current
+        run: .github/scripts/test-migrations-destructive.sh
+        env:
+          MIGRATIONS_TEST_DESTRUCTIVE: "true"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
