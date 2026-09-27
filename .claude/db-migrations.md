@@ -17,6 +17,7 @@
 | Baseline = schema as-is, fixes as separate migrations | Owner decision: clean, reviewable history for the thesis. |
 | Phase 1 scope: bugs B1–B6 + design issues D1, D2, D5, D7 | Owner decision; D3, D4, D6 deferred. |
 | Fix-migration SQL written by the owner, reviewed by Claude | Academic-integrity rules (see CLAUDE.md): domain logic should be the owner's own work. |
+| `add_guild_to_community` copies moderators from **one** optional source guild (`foreign_guild_id`, NULL = copy nothing) instead of `add_moderators BOOLEAN` | Owner decision (option C of: no copy / intersection / single source; union rejected as privilege escalation). A mod may be in several guilds with different bundles; copying from a single chosen guild is deterministic and never grants more than the mod already had there. Bundles are copied as new `mod_rules` rows for the new guild (per-guild permissions), named with a `from_<guild_id>` marker, and copied mods point at the copies. Role grants (`moderator_platform_role`) are not copied — role IDs are guild-specific. Holders of the source guild's default (owner) bundle are skipped: usually the same person as the new owner, otherwise owner-level access should be granted explicitly. Signature change ⇒ migration needs DROP + CREATE; down restores the old function. |
 
 ## Schema review findings
 
@@ -41,5 +42,5 @@ Deferred: **D3** `updated_at` never maintained (no trigger); **D4** no `balance 
 1. [x] dbmate in compose + baseline migration + `schema.sql`
 2. [x] Owner deletes `db/00-types.sql`, `db/01-tables.sql`, `db/02-functions.sql`, `db/03-indexes.sql`
 3. [x] CI `.github/workflows/test-migrations-destructive.yml` → `.github/scripts/test-migrations-destructive.sh` (guards: `MIGRATIONS_TEST_DESTRUCTIVE=true` opt-in set only by the workflow, and target DB must have no tables). Per migration: schema dump before `up` must equal dump after `rollback`; re-`up` must reproduce the applied schema; then `schema.sql` diff. Stepping is done by copying migrations one by one into a staging dir mounted as `DBMATE_MIGRATIONS_DIR` (dbmate has no single-step `up`); dumps use `pg_dump --restrict-key=ci`, excluding `schema_migrations`. Verified locally: passes on baseline; fails on a function change whose down doesn't restore the old body; fails on un-regenerated `schema.sql`. Passes on GitHub Actions (YAML anchors in trigger paths accepted).
-4. [ ] Fix migrations (owner writes, Claude reviews): B1; B4; B6; B2+B3+B5 together (ruleset resolution); then D1, D2, D5, D7
+4. [ ] Fix migrations (owner writes, Claude reviews): B1 (now also: copy bundles from `foreign_guild_id`, see Decisions); B4; B6; B2+B3+B5 together (ruleset resolution); then D1, D2, D5, D7
 5. [ ] Decide on pgTAP for SQL-function tests (pending owner)
