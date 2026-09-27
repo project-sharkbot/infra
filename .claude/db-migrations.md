@@ -50,3 +50,22 @@ Deferred: **D3** `updated_at` never maintained (no trigger); **D4** no `balance 
 4. [ ] Fix migrations (owner writes, Claude reviews): ~~B1~~ done in `20260927152814_fix_add_guild_platform.sql` (parameters now `p_`-prefixed; copies bundles from `p_foreign_guild_id`, see Decisions; tested: NULL source, copy with shared bundle, owner-default holders skipped, same-named bundles in other guilds/communities not leaked, foreign-community source rejected + rolled back); ~~B4~~ done in `20260927175128_fix_active_ruleset_on_delete.sql` (tested: active ruleset delete blocked, inactive deletable, switch-then-delete works); ~~B6~~ done in `20260927175145_fix_moderator_bundle_on_delete.sql` (tested: deleting a bundle removes only its holders); B2+B3+B5 together (ruleset resolution); then D1, D2, D5, D7
 5. [ ] Built-ins (right after B6), as three migrations in order: ~~(a)~~ done in `20260927185611_builtin_owner_bundle.sql` — `owner_rules_id()` (IMMUTABLE, fixed UUID …0001), `chk_builtin`, conversion with multiple-holder stop, `moderator_user_one_owner_per_guild`, triggers `lock_owner_bundle` (always raises) and `lock_owner_new`/`lock_owner_old` → `lock_owner_rows()` (allowed only when `sharkbot.owner_change = 'on'`, set via the function-level `SET` clause on `create_community`/`add_guild_to_community`); tested locks L1–L8, both functions, conversion + rollback with data. Note: the setting guards against mistakes, not malicious SQL — real protection needs restricted DB roles for the Api (Phase 2). Was: (a) shared owner bundle + data conversion of existing per-guild default bundles + `create_community`/`add_guild_to_community` updates + lock triggers + one-owner index + owner-row protection; (b) shared "none" ruleset + set as active for new (and existing un-set) guilds + lock; (c) `transfer_guild_owner` as the only way to change an owner row.
 6. [ ] Decide on pgTAP for SQL-function tests (pending owner)
+
+## Next session: migration (b) — shared "none" ruleset
+
+Same pattern as (a). Planned checklist (owner writes, Claude reviews + tests):
+- `none_ruleset_id()` IMMUTABLE with a fixed UUID (e.g. `…0002`).
+- `rulesets.belongs_to` DROP NOT NULL + CHECK allowing NULL only for the built-in id (note `UNIQUE (belongs_to, ruleset_name)` treats NULLs as distinct).
+- Insert the "none" ruleset (no rules).
+- Make it the active ruleset for new guilds in `create_community` and `add_guild_to_community` (function body changes; `down` restores the (a) versions exactly — copy with `sed`, not the IDE).
+- Data: insert a `guild_active_ruleset` row pointing to "none" for existing guilds without one; `down` removes exactly those rows again (only rows pointing to "none"; B4's RESTRICT means "none" can't be deleted while referenced).
+- `guild_active_ruleset` has an FK `(community_id, platform_guild_id, platform)` → `community_guilds`, but D2 (active ruleset must belong to the guild's community) is still open — "none" belongs to no community, so D2's future check must allow it.
+- Lock triggers: `rulesets` BEFORE UPDATE OR DELETE WHEN OLD.id = none → always raise; `rules` BEFORE INSERT OR UPDATE WHEN NEW.ruleset_id = none → always raise (no rules in "none"). Drop triggers first in `down`.
+- Tests to run: new guild gets "none" active; existing guilds backfilled; "none" can't be edited/deleted or get rules; switching away from "none" and back works; rollback restores data.
+
+Then (c) `transfer_guild_owner` (bot-triggered; function-level `SET sharkbot.owner_change = 'on'`; swap the single owner row), then B2+B3+B5 using "none" as the fallback.
+
+## How changes are tested (for Claude)
+
+The owner's stack (`sharkbot_db`, `sharkbot_cache`) usually runs locally with fixed `container_name`s and host ports, so tests run on a copy of the repo in the scratchpad with `COMPOSE_PROJECT_NAME=sbci` and an override file resetting `container_name` and `ports` (`!reset`), using `.env.example`. Never run tests against the owner's real DB or `.env`.
+
