@@ -19,8 +19,10 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_USER=${DB_USER}
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
   test_db_connection:
    #image: TODO 
     build: 
@@ -48,14 +50,26 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # Add initial schema and tables
-      - ./db/:/docker-entrypoint-initdb.d/:ro
       - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2.36.0
+    container_name: sharkbot_migrate
+    command: ["--wait", "up"]
+    environment:
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASS}@postgres:5432/${DB_NAME}?sslmode=disable
+      - DBMATE_MIGRATIONS_DIR=/db/migrations
+      - DBMATE_SCHEMA_FILE=/db/schema.sql
+    volumes:
+      - ./db/:/db/
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
