@@ -1,3 +1,4 @@
 .env
 ## Personal Ai settings
 .claude/settings.local.json
+.idea/
