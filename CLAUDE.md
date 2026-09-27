@@ -37,23 +37,29 @@ Holds the Postgres schema (`db/`) and `docker-compose.yml`; Phase 2 k8s manifest
 `.env` (gitignored) must define `DB_USER`, `DB_PASS`, `DB_NAME`, `REDIS_PASS`.
 
 ```sh
-docker compose up -d postgres redis        # start only the data stores
-docker compose down -v                     # stop AND wipe volumes (needed to re-run db/ init scripts)
+docker compose up -d postgres redis migrate      # data stores + apply pending migrations (migrate exits when done)
+docker compose run --rm migrate status           # applied / pending migrations
+docker compose run --rm migrate new <name>       # create db/migrations/<timestamp>_<name>.sql
+docker compose run --rm migrate up               # apply pending migrations (also rewrites db/schema.sql)
+docker compose run --rm migrate rollback         # undo the latest migration
+docker compose run --rm migrate dump             # regenerate db/schema.sql
 docker exec -it sharkbot_db psql -U "$DB_USER" -d "$DB_NAME"
-docker exec -i sharkbot_db psql -U "$DB_USER" -d "$DB_NAME" < db/02-functions.sql   # re-apply functions to a live DB
 docker exec -it sharkbot_cache redis-cli -a "$REDIS_PASS"
 ```
 
+dbmate runs **only** inside docker compose (the `migrate` service, image `ghcr.io/amacneil/dbmate`, pinned) — never install or call it on the host. The database exists only in this local compose setup. `DB_PASS` is interpolated into `DATABASE_URL`, so it must be URL-safe.
+
 There is no build, lint or test tooling in this repo yet.
 
-### How the schema is loaded
+### Migrations
 
-`./db/` is mounted read-only as `/docker-entrypoint-initdb.d/`, so the Postgres image runs the files **in lexical order, only when the `pg_data` volume is empty**. Editing a `.sql` file has no effect on an existing volume until `docker compose down -v` (or the change is applied manually via `psql`). Scripts are written to be idempotent (`IF NOT EXISTS`, `DO $$ … pg_type` guards, `CREATE OR REPLACE`). There is no migration tool yet — choosing one and a plan for versioned, reversible migrations is roadmap item 1.
+The schema is managed by [dbmate](https://github.com/amacneil/dbmate). Migrations live in `db/migrations/<timestamp>_<name>.sql`, each with `-- migrate:up` and `-- migrate:down` sections, applied in timestamp order, each in its own transaction. Applied versions are tracked in the `schema_migrations` table. `db/schema.sql` is a generated snapshot (by `dbmate dump`, also written after every `up`/`rollback`) — commit it with every migration, never edit it by hand.
 
-- `00-types.sql` — `uuid-ossp` + enums (`platform_type`, `transaction_type`, `rule_types`, `punishment_type`, `message_reaction`). New enum values are added via `ALTER TYPE`, which is why enums are used.
-- `01-tables.sql` — tables in dependency order, grouped by domain.
-- `02-functions.sql` — PL/pgSQL business functions called by the Api.
-- `03-indexes.sql` — extra indexes; new indexes go in a new numeric-prefixed file.
+- `20260927000001_baseline.sql` is the pre-dbmate schema copied unchanged (enums, tables, PL/pgSQL functions, indexes); its `IF NOT EXISTS`/`CREATE OR REPLACE` guards let it apply cleanly over a volume that was initialised by the old init-script setup.
+- Every migration has a working `down`. Never edit a committed migration — add a new one. One concern per migration.
+- Changing a function: `up` has the new `CREATE OR REPLACE`, `down` restores the previous definition verbatim.
+- `ALTER TYPE … ADD VALUE` cannot be reversed with a single statement (Postgres cannot drop enum values); its `down` must recreate the type or the migration must be documented as irreversible. A new enum value cannot be used in the same transaction that adds it.
+- Migration plan, schema review findings and open TODOs: `.claude/db-migrations.md`.
 
 ### Schema domains
 
@@ -94,4 +100,4 @@ This is a diploma project, so these rules take precedence over convenience. Sour
 
 ## Roadmap item for this repo
 
-**Phase 1, item 1 — DB migration plan**: review the current Postgres schema and functions, propose a migration tool, and plan versioned, reversible migrations going forward (replacing the init-script-only approach above). Workflow: plan → implement → tests → CI check → propose commits → next item.
+**Phase 1, item 1 — DB migration plan**: review the current Postgres schema and functions, propose a migration tool, and plan versioned, reversible migrations going forward. In progress — dbmate chosen and baseline in place; remaining steps are tracked in `.claude/db-migrations.md`. Workflow: plan → implement → tests → CI check → propose commits → next item.
