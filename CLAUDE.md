@@ -49,7 +49,7 @@ docker exec -it sharkbot_cache redis-cli -a "$REDIS_PASS"
 
 dbmate runs **only** inside docker compose (the `migrate` service, image `ghcr.io/amacneil/dbmate`, pinned) — never install or call it on the host. The database exists only in this local compose setup. `DB_PASS` is interpolated into `DATABASE_URL`, so it must be URL-safe.
 
-There is no build, lint or test tooling in this repo yet.
+CI: `.github/workflows/test-migrations-destructive.yml` (on changes to `db/**`, compose, `.env.example`, the CI files) starts postgres via docker compose with `.env.example` as `.env`, then runs `.github/scripts/test-migrations-destructive.sh`: for each migration in order it compares `pg_dump --schema-only` before `up` with the dump after `rollback` (must be identical — `down` must restore the exact previous schema, including old function bodies), checks re-applying gives the same schema, and finally `git diff --exit-code db/schema.sql`. The script rolls back everything (destroys data), so it refuses to run unless `MIGRATIONS_TEST_DESTRUCTIVE=true` is set (only the workflow sets it) and the target database has no tables — never run it against the real local DB. No other build, lint or test tooling yet.
 
 ### Migrations
 
