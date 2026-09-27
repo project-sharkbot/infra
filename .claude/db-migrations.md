@@ -17,17 +17,19 @@
 | Baseline = schema as-is, fixes as separate migrations | Owner decision: clean, reviewable history for the thesis. |
 | Phase 1 scope: bugs B1–B6 + design issues D1, D2, D5, D7 | Owner decision; D3, D4, D6 deferred. |
 | Fix-migration SQL written by the owner, reviewed by Claude | Academic-integrity rules (see CLAUDE.md): domain logic should be the owner's own work. |
+| B4: `guild_active_ruleset.ruleset_id` → `ON DELETE RESTRICT` | Owner decision: an active ruleset cannot be deleted; a mod must switch the guild to another ruleset first (prevents accidentally disabling moderation). Rejected CASCADE (guild would silently have no active ruleset). |
+| B6: `moderator_user.mod_rules_id` → `ON DELETE CASCADE` | Owner decision: deleting a bundle revokes all its holders at once (emergency revocation of a mod group); consistent with `moderator_platform_role`. Risk: deleting a guild's default (owner) bundle would lock the owner out — closed by the follow-up built-in protection migration. |
 | `add_guild_to_community` copies moderators from **one** optional source guild (`foreign_guild_id`, NULL = copy nothing) instead of `add_moderators BOOLEAN` | Owner decision (option C of: no copy / intersection / single source; union rejected as privilege escalation). A mod may be in several guilds with different bundles; copying from a single chosen guild is deterministic and never grants more than the mod already had there. Bundles are copied as new `mod_rules` rows for the new guild (per-guild permissions), named with a `from_<guild_id>` marker, and copied mods point at the copies. Role grants (`moderator_platform_role`) are not copied — role IDs are guild-specific. Holders of the source guild's default (owner) bundle are skipped: usually the same person as the new owner, otherwise owner-level access should be granted explicitly. Signature change ⇒ migration needs DROP + CREATE; down restores the old function. |
 
 ## Schema review findings
 
 Bugs (all reproduced on Postgres 16):
-- **B1** `add_guild_to_community(..., add_moderators => true)` always returns `1, column reference "platform" is ambiguous` (unqualified `platform` in the moderator-copy insert).
+- **B1** (fixed) `add_guild_to_community(..., add_moderators => true)` always returns `1, column reference "platform" is ambiguous` (unqualified `platform` in the moderator-copy insert).
 - **B2** Server-wide `ruleset_overrides` rows are impossible: `check_scope_validity` requires channel/role/user, so the server-wide branch of `get_active_ruleset_for_context` is dead.
 - **B3** `get_active_ruleset_for_context` never falls back to `guild_active_ruleset` → no ruleset when no override matches.
-- **B4** `guild_active_ruleset.ruleset_id` is `NOT NULL` with `ON DELETE SET NULL` → deleting an active ruleset errors.
+- **B4** (fixed) `guild_active_ruleset.ruleset_id` is `NOT NULL` with `ON DELETE SET NULL` → deleting an active ruleset errors.
 - **B5** `ruleset_overrides` UNIQUE over nullable columns permits duplicates (use `UNIQUE NULLS NOT DISTINCT`, PG15+).
-- **B6** `moderator_user.mod_rules_id` has no `ON DELETE` → granted bundles can't be deleted.
+- **B6** (fixed) `moderator_user.mod_rules_id` has no `ON DELETE` → granted bundles can't be deleted.
 
 Design (in scope):
 - **D1** `ruleset_overrides` / `moderation_logs` key guilds by `server_fk` without `platform` (cross-platform ID collision); `p_platform` unused in `get_active_ruleset_for_context`.
@@ -42,5 +44,6 @@ Deferred: **D3** `updated_at` never maintained (no trigger); **D4** no `balance 
 1. [x] dbmate in compose + baseline migration + `schema.sql`
 2. [x] Owner deletes `db/00-types.sql`, `db/01-tables.sql`, `db/02-functions.sql`, `db/03-indexes.sql`
 3. [x] CI `.github/workflows/test-migrations-destructive.yml` → `.github/scripts/test-migrations-destructive.sh` (guards: `MIGRATIONS_TEST_DESTRUCTIVE=true` opt-in set only by the workflow, and target DB must have no tables). Per migration: schema dump before `up` must equal dump after `rollback`; re-`up` must reproduce the applied schema; then `schema.sql` diff. Stepping is done by copying migrations one by one into a staging dir mounted as `DBMATE_MIGRATIONS_DIR` (dbmate has no single-step `up`); dumps use `pg_dump --restrict-key=ci`, excluding `schema_migrations`. Verified locally: passes on baseline; fails on a function change whose down doesn't restore the old body; fails on un-regenerated `schema.sql`. Passes on GitHub Actions (YAML anchors in trigger paths accepted).
-4. [ ] Fix migrations (owner writes, Claude reviews): B1 (now also: copy bundles from `foreign_guild_id`, see Decisions); B4; B6; B2+B3+B5 together (ruleset resolution); then D1, D2, D5, D7
-5. [ ] Decide on pgTAP for SQL-function tests (pending owner)
+4. [ ] Fix migrations (owner writes, Claude reviews): ~~B1~~ done in `20260927152814_fix_add_guild_platform.sql` (parameters now `p_`-prefixed; copies bundles from `p_foreign_guild_id`, see Decisions; tested: NULL source, copy with shared bundle, owner-default holders skipped, same-named bundles in other guilds/communities not leaked, foreign-community source rejected + rolled back); ~~B4~~ done in `20260927175128_fix_active_ruleset_on_delete.sql` (tested: active ruleset delete blocked, inactive deletable, switch-then-delete works); ~~B6~~ done in `20260927175145_fix_moderator_bundle_on_delete.sql` (tested: deleting a bundle removes only its holders); B2+B3+B5 together (ruleset resolution); then D1, D2, D5, D7
+5. [ ] Built-in protection migration (right after B6): `mod_rules.is_default BOOLEAN` set by `create_community`/`add_guild_to_community` (owner bundles are currently recognised only by name `default_mod_rules_<platform>_<guild>`), plus a trigger blocking delete/edit of default bundles. Possibly also `rulesets.is_builtin BOOLEAN` — a built-in empty ruleset per community created by `create_community`, not deletable/editable, as a safe fallback active ruleset.
+6. [ ] Decide on pgTAP for SQL-function tests (pending owner)
