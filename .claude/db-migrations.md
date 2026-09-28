@@ -57,7 +57,9 @@ Deferred: **D3** `updated_at` never maintained (no trigger); **D4** no `balance 
 
 Bot-triggered on platform events (see Decisions); function-level `SET sharkbot.owner_change = 'on'`; swaps the single owner row of a guild (the one-owner index and owner-row locks from (a) must hold). Then B2+B3+B5 (ruleset resolution) using "none" as the fallback; D2's future check must allow "none" (it belongs to no community).
 
-Open infra item: local `postgres:16-alpine` was 16.13 while CI pulled 16.15, so the `-- Dumped from database version` header in `schema.sql` flips between machines and CI's `git diff` check fails. Fixed for now with `docker compose pull postgres`; proposed durable fix: pin an exact tag (e.g. `postgres:16.15-alpine`) in compose (pending owner).
+Open infra item: local `postgres:16-alpine` was 16.13 while CI pulled 16.15, so the `-- Dumped from database version` header in `schema.sql` flips between machines and CI's `git diff` check fails. Fixed for now with `docker compose pull postgres`; durable fix: owner pins an exact tag (`postgres:16.15-alpine`) in compose, committed together with (b).
+
+Paused 2026-09-28: owner is switching to proto/Api work; resume here with (c).
 
 ## How changes are tested (for Claude)
 
