@@ -104,6 +104,9 @@ BEGIN
     INSERT INTO community_guilds (community_id, platform_guild_id, platform)
     VALUES (p_target_community_id, p_guild_id, p_platform);
 
+    INSERT INTO guild_active_ruleset (community_id, ruleset_id, platform, platform_guild_id)
+    VALUES (p_target_community_id, none_ruleset_id(), p_platform, p_guild_id);
+
     INSERT INTO moderator_user (
         platform,
         platform_guild_id,
@@ -214,6 +217,9 @@ BEGIN
 
     INSERT INTO community_guilds (community_id, platform_guild_id, platform)
     VALUES (new_community_id, guild_id, platform);
+
+    INSERT INTO guild_active_ruleset (community_id, ruleset_id, platform, platform_guild_id)
+    VALUES (new_community_id, none_ruleset_id(), platform, guild_id);
 
     -- Adds owner as god-tier mod
     INSERT INTO moderator_user (
@@ -350,6 +356,19 @@ $_$;
 
 
 --
+-- Name: lock_builtin_none_ruleset(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_builtin_none_ruleset() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'Cannot modify the built-in None ruleset';
+END;
+$$;
+
+
+--
 -- Name: lock_owner_bundle(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -376,6 +395,15 @@ BEGIN
     RETURN COALESCE(NEW, OLD);
 end;
 $$;
+
+
+--
+-- Name: none_ruleset_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.none_ruleset_id() RETURNS uuid
+    LANGUAGE sql IMMUTABLE
+    AS $$ SELECT '00000000-0000-0000-0000-000000000002'::uuid $$;
 
 
 --
@@ -616,7 +644,8 @@ CREATE TABLE public.rulesets (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
     ruleset_name character varying(100) NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    belongs_to uuid NOT NULL
+    belongs_to uuid,
+    CONSTRAINT chk_builtin_none_ruleset CHECK (((belongs_to IS NOT NULL) OR (id = public.none_ruleset_id())))
 );
 
 
@@ -916,6 +945,20 @@ CREATE UNIQUE INDEX moderator_user_one_owner_per_guild ON public.moderator_user 
 
 
 --
+-- Name: rules lock_builtin_none_no_rules_added_trigger; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER lock_builtin_none_no_rules_added_trigger BEFORE INSERT OR UPDATE ON public.rules FOR EACH ROW WHEN ((new.ruleset_id = public.none_ruleset_id())) EXECUTE FUNCTION public.lock_builtin_none_ruleset();
+
+
+--
+-- Name: rulesets lock_builtin_none_ruleset_trigger; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER lock_builtin_none_ruleset_trigger BEFORE DELETE OR UPDATE ON public.rulesets FOR EACH ROW WHEN ((old.id = public.none_ruleset_id())) EXECUTE FUNCTION public.lock_builtin_none_ruleset();
+
+
+--
 -- Name: mod_rules lock_owner_bundle; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1064,4 +1107,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260927152814'),
     ('20260927175128'),
     ('20260927175145'),
-    ('20260927185611');
+    ('20260927185611'),
+    ('20260928152503');
